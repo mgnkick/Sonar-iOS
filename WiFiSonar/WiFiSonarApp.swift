@@ -629,7 +629,7 @@ private final class ScanProbeCompletionGate: @unchecked Sendable {
     }
 }
 
-struct SurveyPoint: Identifiable, Codable {
+struct SurveyPoint: Identifiable, Codable, Equatable {
     var id = UUID()
     var title: String
     var x: CGFloat
