@@ -90,3 +90,6 @@
 "iOS не предоставила параметры сети. Проверьте entitlement Access Wi-Fi Information и требования Apple к доступу." = "iOS did not provide Wi-Fi details. Check the Access Wi-Fi Information entitlement and Apple's access requirements.";
 "Выбрать план или фото" = "Choose floor plan or photo";
 "Убрать подложку" = "Remove background image";
+"%d/tcp — таймаут или закрыт" = "%d/tcp — timed out or closed";
+"%d/tcp — открыт · %.1f мс" = "%d/tcp — open · %.1f ms";
+"%d/tcp — закрыт или недоступен" = "%d/tcp — closed or unavailable";
