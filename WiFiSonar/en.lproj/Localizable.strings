@@ -105,3 +105,7 @@
 "Не удалось получить координаты." = "Could not get coordinates.";
 "Экспорт PNG" = "Export PNG";
 "Поделиться PNG" = "Share PNG";
+"Wi-Fi" = "Wi-Fi";
+"WiFi Sonar" = "WiFi Sonar";
+"Traceroute / ICMP ping" = "Traceroute / ICMP ping";
+"English" = "English";
