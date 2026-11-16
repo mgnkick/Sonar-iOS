@@ -103,3 +103,5 @@
 "Разрешение получено. Получаем координаты…" = "Permission granted. Getting coordinates…";
 "Координаты сохранены для следующих событий." = "Coordinates saved for future events.";
 "Не удалось получить координаты." = "Could not get coordinates.";
+"Экспорт PNG" = "Export PNG";
+"Поделиться PNG" = "Share PNG";
