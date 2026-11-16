@@ -60,7 +60,8 @@
 - Bonjour HTTP service discovery с запросом Local Network permission при первом запуске поиска.
 - Ручные точки на карте замеров, router/satellite обозначения, pan/zoom.
 - Локальная запись изменений сетевого состояния, JSON экспорт/импорт, миграция раннего формата событий.
-- CI workflow для сборки iOS Simulator на macOS.
+- CI workflow для сборки iOS Simulator на macOS с Xcode 26 / iOS 26 SDK.
+- AppIcon asset catalog: логотип генерируется на этапе сборки из исходных Android vector paths и фона #0F172A через `Scripts/GenerateAppIcon.swift`.
 
 ## Что ещё не перенесено
 
@@ -97,5 +98,11 @@ Bonjour использует `NSLocalNetworkUsageDescription` и деклара�
 - Пароли Wi-Fi не считываются и не сохраняются.
 - История и резервная копия локальные; backup не содержит паролей.
 - Local Network доступ запрашивается только при запуске Bonjour-поиска.
-- Геопозиция в текущем каркасе ещё не запрашивается.
+- Геопозиция запрашивается только по явному нажатию пользователя в разделе История.
 - Недоступные системные данные не заменяются догадками.
+
+## App Store assets
+
+- Android launcher icon is carried over without redesign. The Xcode asset catalog creates the 1024×1024 universal AppIcon from the original foreground curves and background color on each build.
+- The Russian screenshot set is prepared separately as six 1290×2796 PNG UI mockups for the iPhone large-display slot. They mirror the current iOS prototype and mark iOS-restricted data as unavailable; they are not captured from a running simulator. Always compare against a device build before submission.
+- The screenshot pack and the PNG/SVG icon master are supplied as a separate archive alongside this repository.
