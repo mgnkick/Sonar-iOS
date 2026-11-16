@@ -571,27 +571,31 @@ final class DiagnosticsService: ObservableObject {
             guard let endpointPort = NWEndpoint.Port(rawValue: port) else { continue }
             let probe = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
             let start = DispatchTime.now()
-            var completed = false
+            let completionGate = ScanProbeCompletionGate()
             let timeout = DispatchWorkItem { [weak self] in
-                guard !completed else { return }
-                completed = true
-                DispatchQueue.main.async { self?.logs.append("\(port)/tcp — таймаут или закрыт") }
+                guard completionGate.finishOnce() else { return }
+                DispatchQueue.main.async {
+                    self?.logs.append(String(format: String(localized: "%d/tcp — таймаут или закрыт"), Int(port)))
+                }
                 probe.cancel()
             }
             DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: timeout)
             probe.stateUpdateHandler = { [weak self] state in
-                guard !completed else { return }
                 switch state {
                 case .ready:
-                    completed = true
+                    guard completionGate.finishOnce() else { return }
                     timeout.cancel()
                     let ms = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-                    DispatchQueue.main.async { self?.logs.append("\(port)/tcp — открыт · \(String(format: "%.1f", ms)) мс") }
+                    DispatchQueue.main.async {
+                        self?.logs.append(String(format: String(localized: "%d/tcp — открыт · %.1f мс"), Int(port), ms))
+                    }
                     probe.cancel()
                 case .failed:
-                    completed = true
+                    guard completionGate.finishOnce() else { return }
                     timeout.cancel()
-                    DispatchQueue.main.async { self?.logs.append("\(port)/tcp — закрыт или недоступен") }
+                    DispatchQueue.main.async {
+                        self?.logs.append(String(format: String(localized: "%d/tcp — закрыт или недоступен"), Int(port)))
+                    }
                     probe.cancel()
                 default: break
                 }
