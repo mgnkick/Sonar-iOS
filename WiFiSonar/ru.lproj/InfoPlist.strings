@@ -1,0 +1,2 @@
+"NSLocalNetworkUsageDescription" = "WiFi Sonar использует локальную сеть для обнаружения Bonjour-устройств и проверки выбранного вами узла.";
+"NSLocationWhenInUseUsageDescription" = "WiFi Sonar может добавлять координаты к замеру, когда вы решите сохранить его.";
