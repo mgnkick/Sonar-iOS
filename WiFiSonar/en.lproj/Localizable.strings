@@ -86,3 +86,5 @@
 "Подключён Wi-Fi" = "Wi-Fi connected";
 "Доступно другое сетевое подключение" = "Another network connection is available";
 "Сетевое подключение недоступно" = "Network connection unavailable";
+"Получить параметры текущей сети" = "Read current Wi-Fi details";
+"iOS не предоставила параметры сети. Проверьте entitlement Access Wi-Fi Information и требования Apple к доступу." = "iOS did not provide Wi-Fi details. Check the Access Wi-Fi Information entitlement and Apple's access requirements.";
