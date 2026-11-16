@@ -283,6 +283,7 @@ struct SurveyMapView: View {
     @State private var label = ""
     @State private var selectedTool = "Точка"
     @State private var zoom: CGFloat = 1
+    @State private var pan = CGSize.zero
     private let tools = ["Точка", "Роутер", "Сателлит", "Линия", "Фигура", "Текст"]
     var body: some View {
         ScreenScroll(title: "Карта замеров") {
@@ -319,11 +320,15 @@ struct SurveyMapView: View {
                         }
                     }
                     .scaleEffect(zoom)
+                    .offset(pan)
                     .simultaneousGesture(MagnificationGesture().onChanged { value in
                         zoom = min(max(value, 0.65), 2.5)
                     })
-                    .simultaneousGesture(DragGesture(minimumDistance: 0).onEnded { gesture in
-                        let point = gesture.location
+                    .simultaneousGesture(DragGesture(minimumDistance: 10).onChanged { value in
+                        pan = value.translation
+                    })
+                    .simultaneousGesture(SpatialTapGesture().onEnded { value in
+                        let point = value.location
                         points.append(SurveyPoint(title: label.isEmpty ? "Замер \(points.count + 1)" : label,
                                                   x: min(max(point.x / proxy.size.width, 0), 1),
                                                   y: min(max(point.y / proxy.size.height, 0), 1),
@@ -588,7 +593,8 @@ enum HistoryStore {
             return backup.events
         }
         // Migration path: accept the original v1 history array.
-        let legacy = try decoder.decode([HistoryEvent].self, from: data)
+        let legacyDecoder = JSONDecoder()
+        let legacy = try legacyDecoder.decode([HistoryEvent].self, from: data)
         save(legacy)
         return legacy
     }
