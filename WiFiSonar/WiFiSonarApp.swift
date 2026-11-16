@@ -643,7 +643,10 @@ struct SurveyPoint: Identifiable, Codable, Equatable {
 
 enum SurveyMapStore {
     private static let pointsKey = "wifiSonar.surveyMap.points.v1"
-    private static let imageKey = "wifiSonar.surveyMap.floorPlan.v1"
+    private static var floorPlanURL: URL? {
+        guard let root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else { return nil }
+        return root.appendingPathComponent("WiFiSonar", isDirectory: true).appendingPathComponent("floor-plan.jpg")
+    }
 
     static func loadPoints() -> [SurveyPoint] {
         guard let data = UserDefaults.standard.data(forKey: pointsKey),
@@ -657,11 +660,25 @@ enum SurveyMapStore {
     }
 
     static func loadFloorPlan() -> Data? {
-        UserDefaults.standard.data(forKey: imageKey)
+        guard let url = floorPlanURL else { return nil }
+        return try? Data(contentsOf: url)
     }
 
     static func saveFloorPlan(_ data: Data?) {
-        UserDefaults.standard.set(data, forKey: imageKey)
+        guard let url = floorPlanURL else { return }
+        do {
+            if let data {
+                try FileManager.default.createDirectory(
+                    at: url.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: url, options: .atomic)
+            } else if FileManager.default.fileExists(atPath: url.path) {
+                try FileManager.default.removeItem(at: url)
+            }
+        } catch {
+            // Keep the previous plan untouched if an atomic write fails.
+        }
     }
 
     static func optimizeImageData(_ data: Data) -> Data? {
