@@ -1,5 +1,6 @@
 import SwiftUI
 import Network
+import NetworkExtension
 import SystemConfiguration
 import Darwin
 import UIKit
@@ -168,11 +169,17 @@ struct ScannerView: View {
                 HStack { Text(network.isWiFi ? String(localized: "Wi-Fi") : String(localized: "Сетевой путь")); Spacer(); Text(network.statusText).foregroundStyle(.secondary) }
                 if let ip = network.ipAddress { infoRow("Локальный IP", ip) }
                 else { unavailableRow("Локальный IP") }
-                unavailableRow("SSID")
-                unavailableRow("BSSID")
+                infoRow("SSID", network.currentSSID ?? String(localized: "Недоступно"))
+                infoRow("BSSID", network.currentBSSID ?? String(localized: "Недоступно"))
+                infoRow("Защита Wi-Fi", network.securityType ?? String(localized: "Недоступно"))
+                if let note = network.currentInfoNote {
+                    Text(note).font(.caption).foregroundStyle(.secondary)
+                }
+                Button("Получить параметры текущей сети") {
+                    network.readCurrentWiFiInfo()
+                }.buttonStyle(.bordered)
                 unavailableRow("RSSI / уровень сигнала")
                 unavailableRow("Частота / канал / ширина")
-                unavailableRow("Защита Wi-Fi")
             }
             SonarCard {
                 Label("Соседние сети", systemImage: "antenna.radiowaves.left.and.right").font(.headline)
@@ -426,8 +433,12 @@ struct AboutView: View {
 @MainActor
 final class NetworkStatusService: ObservableObject {
     @Published var isWiFi = false
-    @Published var statusText = "Не определено"
+    @Published var statusText = String(localized: "Не определено")
     @Published var ipAddress: String?
+    @Published var currentSSID: String?
+    @Published var currentBSSID: String?
+    @Published var securityType: String?
+    @Published var currentInfoNote: String?
     private let monitor = NWPathMonitor()
     private var started = false
     func start() {
@@ -447,6 +458,24 @@ final class NetworkStatusService: ObservableObject {
         monitor.start(queue: DispatchQueue(label: "wifi.sonar.path"))
     }
     func refreshInterface() { ipAddress = Self.ipv4Address() }
+
+    func readCurrentWiFiInfo() {
+        Task {
+            let current = await NEHotspotNetwork.fetchCurrent()
+            if let current {
+                currentSSID = current.ssid
+                currentBSSID = current.bssid
+                securityType = String(describing: current.securityType)
+                currentInfoNote = nil
+            } else {
+                currentSSID = nil
+                currentBSSID = nil
+                securityType = nil
+                currentInfoNote = String(localized: "iOS не предоставила параметры сети. Проверьте entitlement Access Wi-Fi Information и требования Apple к доступу.")
+            }
+        }
+    }
+
     private static func ipv4Address() -> String? {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return nil }
@@ -593,7 +622,7 @@ enum HistoryStore {
             save(backup.events)
             return backup.events
         }
-        // Migration path: accept the original v1 history array.
+        // Migration path: accept the original v1 history array (Foundation date encoding).
         let legacyDecoder = JSONDecoder()
         let legacy = try legacyDecoder.decode([HistoryEvent].self, from: data)
         save(legacy)
