@@ -3,6 +3,7 @@ import Network
 import SystemConfiguration
 import Darwin
 import UIKit
+import UniformTypeIdentifiers
 
 @main
 struct WiFiSonarApp: App {
@@ -222,18 +223,18 @@ struct AuditView: View {
 
 struct DiagnosticsView: View {
     @StateObject private var diagnostics = DiagnosticsService()
-    @State private var host = "1.1.1.1"
-    @State private var port = "443"
+    @State private var host = "192.168.1.1"
+    @State private var ports = "22,80,443,8080"
     var body: some View {
         ScreenScroll(title: "Диагностика") {
             SonarCard {
                 Text("TCP-проверка доступности").font(.headline)
                 TextField("Адрес или имя узла", text: $host).textInputAutocapitalization(.never).autocorrectionDisabled().textFieldStyle(.roundedBorder)
-                TextField("Порт", text: $port).keyboardType(.numberPad).textFieldStyle(.roundedBorder)
-                Button { diagnostics.checkTCP(host: host, port: UInt16(port) ?? 443) } label: {
-                    Label("Проверить TCP", systemImage: "play.fill")
+                TextField("Порты через запятую", text: $ports).keyboardType(.numbersAndPunctuation).textFieldStyle(.roundedBorder)
+                Button { diagnostics.scanTCP(host: host, ports: ports) } label: {
+                    Label("Проверить TCP-порты", systemImage: "play.fill")
                 }.buttonStyle(.borderedProminent).tint(SonarTheme.cyan)
-                Text("Это проверка TCP-соединения, а не ICMP ping.").font(.caption).foregroundStyle(.secondary)
+                Text("Проверяются только введённые порты выбранного IPv4-адреса. Задержка TCP не является ICMP ping.").font(.caption).foregroundStyle(.secondary)
             }
             SonarCard {
                 Text("Локальная сеть (Bonjour)").font(.headline)
@@ -338,12 +339,23 @@ struct SurveyMapView: View {
 
 struct HistoryView: View {
     @State private var events = HistoryStore.load()
+    @State private var showImporter = false
+    @State private var importMessage: String?
     var body: some View {
         ScreenScroll(title: "История") {
             SonarCard {
                 Text("Наблюдаемые события").font(.headline)
                 Text("iOS не предоставляет системную историю Wi-Fi-подключений. Здесь будут отображаться только события, которые приложение реально наблюдало во время работы.")
                     .font(.subheadline).foregroundStyle(.secondary)
+                HStack {
+                    ShareLink(item: HistoryStore.exportJSON(), preview: SharePreview("WiFi Sonar backup")) {
+                        Label("Экспорт копии", systemImage: "square.and.arrow.up")
+                    }
+                    Button { showImporter = true } label: {
+                        Label("Импорт", systemImage: "square.and.arrow.down")
+                    }
+                }.font(.subheadline)
+                if let importMessage { Text(importMessage).font(.caption).foregroundStyle(.secondary) }
                 if events.isEmpty { Text("История пока пуста.").foregroundStyle(.secondary) }
                 else {
                     ForEach(events) { event in
@@ -353,6 +365,19 @@ struct HistoryView: View {
                         }
                     }
                 }
+            }
+        }
+        .onAppear { events = HistoryStore.load() }
+        .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
+            do {
+                let url = try result.get().first!
+                let accessed = url.startAccessingSecurityScopedResource()
+                defer { if accessed { url.stopAccessingSecurityScopedResource() } }
+                let data = try Data(contentsOf: url)
+                events = try HistoryStore.importJSON(data)
+                importMessage = "Импортировано событий: \(events.count)"
+            } catch {
+                importMessage = "Не удалось импортировать резервную копию."
             }
         }
     }
@@ -404,12 +429,13 @@ final class NetworkStatusService: ObservableObject {
         started = true
         monitor.pathUpdateHandler = { [weak self] path in
             let wifi = path.usesInterfaceType(.wifi)
-            let status = path.status == .satisfied ? "Доступен" : "Нет доступа"
+            let status = path.status == .satisfied ? String(localized: "Доступен") : String(localized: "Нет доступа")
             let ip = Self.ipv4Address()
             DispatchQueue.main.async {
                 self?.isWiFi = wifi
                 self?.statusText = status
                 self?.ipAddress = ip
+                HistoryStore.recordPathChange(isWiFi: wifi, isAvailable: path.status == .satisfied, ipAddress: ip)
             }
         }
         monitor.start(queue: DispatchQueue(label: "wifi.sonar.path"))
@@ -443,34 +469,55 @@ final class DiagnosticsService: ObservableObject {
     private var browser: NWBrowser?
     private var connection: NWConnection?
 
-    func checkTCP(host: String, port: UInt16) {
-        guard !host.trimmingCharacters(in: .whitespaces).isEmpty else {
-            logs.append("Ошибка: укажите адрес узла.")
+    func scanTCP(host: String, ports rawPorts: String) {
+        let octets = host.split(separator: ".").compactMap { UInt8($0) }
+        guard octets.count == 4, octets.map(String.init).joined(separator: ".") == host else {
+            logs.append("Ошибка: введите IPv4-адрес устройства в локальной сети.")
             return
         }
-        guard let endpointPort = NWEndpoint.Port(rawValue: port) else {
-            logs.append("Ошибка: неверный порт.")
+        let a = Int(octets[0]), b = Int(octets[1])
+        let privateAddress = a == 10 || a == 192 && b == 168 || a == 172 && (16...31).contains(b) || a == 169 && b == 254
+        guard privateAddress else {
+            logs.append("Проверка ограничена частными IPv4-адресами локальной сети.")
             return
         }
-        logs.append("TCP \(host):\(port) — проверка начата")
-        let connection = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
-        self.connection = connection
-        let start = DispatchTime.now()
-        connection.stateUpdateHandler = { [weak self] state in
-            DispatchQueue.main.async {
+        let selected = Array(Set(rawPorts.split(separator: ",").compactMap { UInt16($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 > 0 })).sorted().prefix(32)
+        guard !selected.isEmpty else {
+            logs.append("Ошибка: укажите хотя бы один TCP-порт.")
+            return
+        }
+        logs.append("TCP-сканирование \(host) · портов: \(selected.count)")
+        for port in selected {
+            guard let endpointPort = NWEndpoint.Port(rawValue: port) else { continue }
+            let probe = NWConnection(host: NWEndpoint.Host(host), port: endpointPort, using: .tcp)
+            let start = DispatchTime.now()
+            var completed = false
+            let timeout = DispatchWorkItem { [weak self] in
+                guard !completed else { return }
+                completed = true
+                DispatchQueue.main.async { self?.logs.append("\(port)/tcp — таймаут или закрыт") }
+                probe.cancel()
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2.5, execute: timeout)
+            probe.stateUpdateHandler = { [weak self] state in
+                guard !completed else { return }
                 switch state {
                 case .ready:
+                    completed = true
+                    timeout.cancel()
                     let ms = Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
-                    self?.logs.append(String(format: "TCP соединение установлено · %.1f мс", ms))
-                    connection.cancel()
-                case .failed(let error):
-                    self?.logs.append("TCP ошибка: \(error.localizedDescription)")
-                    connection.cancel()
+                    DispatchQueue.main.async { self?.logs.append("\(port)/tcp — открыт · \(String(format: "%.1f", ms)) мс") }
+                    probe.cancel()
+                case .failed:
+                    completed = true
+                    timeout.cancel()
+                    DispatchQueue.main.async { self?.logs.append("\(port)/tcp — закрыт или недоступен") }
+                    probe.cancel()
                 default: break
                 }
             }
+            probe.start(queue: DispatchQueue(label: "wifi.sonar.tcp.\(port)"))
         }
-        connection.start(queue: DispatchQueue(label: "wifi.sonar.tcp"))
     }
 
     func startBonjourDiscovery() {
@@ -512,5 +559,54 @@ enum HistoryStore {
     }
     static func save(_ events: [HistoryEvent]) {
         if let data = try? JSONEncoder().encode(events) { UserDefaults.standard.set(data, forKey: key) }
+    }
+
+    static func recordPathChange(isWiFi: Bool, isAvailable: Bool, ipAddress: String?) {
+        let signature = "\(isWiFi)|\(isAvailable)|\(ipAddress ?? "unknown")"
+        let previous = UserDefaults.standard.string(forKey: "wifiSonar.lastPathSignature")
+        guard previous != signature else { return }
+        UserDefaults.standard.set(signature, forKey: "wifiSonar.lastPathSignature")
+        let title = isWiFi ? String(localized: "Подключён Wi-Fi") :
+            (isAvailable ? String(localized: "Доступно другое сетевое подключение") : String(localized: "Сетевое подключение недоступно"))
+        var events = load()
+        events.insert(HistoryEvent(id: UUID(), title: title, date: Date()), at: 0)
+        save(Array(events.prefix(500)))
+    }
+
+    static func exportJSON() -> String {
+        let backup = BackupDocument(schemaVersion: 1, exportedAt: Date(), events: load())
+        guard let data = try? JSONEncoder.pretty.encode(backup) else { return "{}" }
+        return String(data: data, encoding: .utf8) ?? "{}"
+    }
+
+    static func importJSON(_ data: Data) throws -> [HistoryEvent] {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        if let backup = try? decoder.decode(BackupDocument.self, from: data) {
+            guard backup.schemaVersion == 1 else { throw BackupError.unsupportedVersion }
+            save(backup.events)
+            return backup.events
+        }
+        // Migration path: accept the original v1 history array.
+        let legacy = try decoder.decode([HistoryEvent].self, from: data)
+        save(legacy)
+        return legacy
+    }
+}
+
+struct BackupDocument: Codable {
+    let schemaVersion: Int
+    let exportedAt: Date
+    let events: [HistoryEvent]
+}
+
+enum BackupError: Error { case unsupportedVersion }
+
+extension JSONEncoder {
+    static var pretty: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        encoder.dateEncodingStrategy = .iso8601
+        return encoder
     }
 }
