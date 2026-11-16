@@ -5,6 +5,7 @@ import SystemConfiguration
 import Darwin
 import UIKit
 import UniformTypeIdentifiers
+import PhotosUI
 
 @main
 struct WiFiSonarApp: App {
@@ -298,7 +299,9 @@ struct SpectrumView: View {
 }
 
 struct SurveyMapView: View {
-    @State private var points: [SurveyPoint] = []
+    @State private var points: [SurveyPoint] = SurveyMapStore.loadPoints()
+    @State private var floorPlanData: Data? = SurveyMapStore.loadFloorPlan()
+    @State private var selectedPhoto: PhotosPickerItem?
     @State private var label = ""
     @State private var selectedTool = "Точка"
     @State private var zoom: CGFloat = 1
@@ -307,6 +310,17 @@ struct SurveyMapView: View {
     var body: some View {
         ScreenScroll(title: "Карта замеров") {
             SonarCard {
+                HStack {
+                    PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                        Label("Выбрать план или фото", systemImage: "photo")
+                    }
+                    if floorPlanData != nil {
+                        Button("Убрать подложку") {
+                            floorPlanData = nil
+                            SurveyMapStore.saveFloorPlan(nil)
+                        }.font(.caption)
+                    }
+                }
                 Picker("Инструмент", selection: $selectedTool) {
                     ForEach(tools, id: \.self) { Text(LocalizedStringKey($0)).tag($0) }
                 }.pickerStyle(.menu)
@@ -321,6 +335,11 @@ struct SurveyMapView: View {
                 GeometryReader { proxy in
                     ZStack {
                         RoundedRectangle(cornerRadius: 12).fill(SonarTheme.surfaceVariant)
+                        if let floorPlanData, let image = UIImage(data: floorPlanData) {
+                            Image(uiImage: image).resizable().scaledToFill()
+                                .frame(width: proxy.size.width, height: proxy.size.height)
+                                .clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+                        }
                         Path { path in
                             stride(from: 0.0, through: 1.0, by: 0.1).forEach { f in
                                 let offset = CGFloat(f)
@@ -356,6 +375,20 @@ struct SurveyMapView: View {
                     })
                 }.frame(height: 320).clipped()
                 Text("Это ручная схема помещения, не автоматическая тепловая карта.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .onAppear {
+            points = SurveyMapStore.loadPoints()
+            floorPlanData = SurveyMapStore.loadFloorPlan()
+        }
+        .onChange(of: points) { newPoints in SurveyMapStore.savePoints(newPoints) }
+        .onChange(of: floorPlanData) { newData in SurveyMapStore.saveFloorPlan(newData) }
+        .onChange(of: selectedPhoto) { newSelection in
+            guard let newSelection else { return }
+            Task {
+                guard let originalData = try? await newSelection.loadTransferable(type: Data.self),
+                      let optimized = SurveyMapStore.optimizeImageData(originalData) else { return }
+                floorPlanData = optimized
             }
         }
     }
@@ -596,12 +629,46 @@ private final class ScanProbeCompletionGate: @unchecked Sendable {
     }
 }
 
-struct SurveyPoint: Identifiable {
-    let id = UUID()
+struct SurveyPoint: Identifiable, Codable {
+    var id = UUID()
     var title: String
     var x: CGFloat
     var y: CGFloat
     var kind: String
+}
+
+enum SurveyMapStore {
+    private static let pointsKey = "wifiSonar.surveyMap.points.v1"
+    private static let imageKey = "wifiSonar.surveyMap.floorPlan.v1"
+
+    static func loadPoints() -> [SurveyPoint] {
+        guard let data = UserDefaults.standard.data(forKey: pointsKey),
+              let values = try? JSONDecoder().decode([SurveyPoint].self, from: data) else { return [] }
+        return values
+    }
+
+    static func savePoints(_ points: [SurveyPoint]) {
+        guard let data = try? JSONEncoder().encode(points) else { return }
+        UserDefaults.standard.set(data, forKey: pointsKey)
+    }
+
+    static func loadFloorPlan() -> Data? {
+        UserDefaults.standard.data(forKey: imageKey)
+    }
+
+    static func saveFloorPlan(_ data: Data?) {
+        UserDefaults.standard.set(data, forKey: imageKey)
+    }
+
+    static func optimizeImageData(_ data: Data) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        let maxDimension: CGFloat = 2200
+        let factor = min(1, maxDimension / max(image.size.width, image.size.height))
+        let target = CGSize(width: image.size.width * factor, height: image.size.height * factor)
+        let renderer = UIGraphicsImageRenderer(size: target)
+        let resized = renderer.image { _ in image.draw(in: CGRect(origin: .zero, size: target)) }
+        return resized.jpegData(compressionQuality: 0.78)
+    }
 }
 
 struct HistoryEvent: Codable, Identifiable {
@@ -675,7 +742,9 @@ enum HistoryStore {
     }
 
     static func exportJSON() -> String {
-        let backup = BackupDocument(schemaVersion: 1, exportedAt: Date(), events: load())
+        let backup = BackupDocument(schemaVersion: 1, exportedAt: Date(), events: load(),
+                                    mapPoints: SurveyMapStore.loadPoints(),
+                                    floorPlanImageData: SurveyMapStore.loadFloorPlan())
         guard let data = try? JSONEncoder.pretty.encode(backup) else { return "{}" }
         return String(data: data, encoding: .utf8) ?? "{}"
     }
@@ -686,6 +755,8 @@ enum HistoryStore {
         if let backup = try? decoder.decode(BackupDocument.self, from: data) {
             guard backup.schemaVersion == 1 else { throw BackupError.unsupportedVersion }
             save(backup.events)
+            SurveyMapStore.savePoints(backup.mapPoints ?? [])
+            SurveyMapStore.saveFloorPlan(backup.floorPlanImageData)
             return backup.events
         }
         // Migration path: accept the original v1 history array (Foundation date encoding).
@@ -700,6 +771,8 @@ struct BackupDocument: Codable {
     let schemaVersion: Int
     let exportedAt: Date
     let events: [HistoryEvent]
+    let mapPoints: [SurveyPoint]?
+    let floorPlanImageData: Data?
 }
 
 enum BackupError: Error { case unsupportedVersion }
