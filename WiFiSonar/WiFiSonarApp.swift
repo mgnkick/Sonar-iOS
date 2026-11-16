@@ -642,7 +642,8 @@ private struct StoredLocation {
 
     static func latest() -> StoredLocation? {
         let defaults = UserDefaults.standard
-        guard let capturedAt = defaults.object(forKey: "wifiSonar.location.timestamp") as? Date else { return nil }
+        guard let capturedAt = defaults.object(forKey: "wifiSonar.location.timestamp") as? Date,
+              Date().timeIntervalSince(capturedAt) <= 3600 else { return nil }
         let latitude = defaults.double(forKey: "wifiSonar.location.latitude")
         let longitude = defaults.double(forKey: "wifiSonar.location.longitude")
         return StoredLocation(latitude: latitude, longitude: longitude, capturedAt: capturedAt)
