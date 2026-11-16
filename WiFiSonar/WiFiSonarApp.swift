@@ -488,7 +488,7 @@ final class NetworkStatusService: ObservableObject {
         }
     }
 
-    private static func ipv4Address() -> String? {
+    nonisolated private static func ipv4Address() -> String? {
         var head: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&head) == 0, let first = head else { return nil }
         defer { freeifaddrs(head) }
@@ -580,6 +580,19 @@ final class DiagnosticsService: ObservableObject {
             DispatchQueue.main.async { self?.logs.append("Bonjour: \(state)") }
         }
         browser.start(queue: DispatchQueue(label: "wifi.sonar.bonjour"))
+    }
+}
+
+private final class ScanProbeCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var isFinished = false
+
+    func finishOnce() -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        guard !isFinished else { return false }
+        isFinished = true
+        return true
     }
 }
 
