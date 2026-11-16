@@ -2,6 +2,7 @@ import SwiftUI
 import Network
 import SystemConfiguration
 import Darwin
+import UIKit
 
 @main
 struct WiFiSonarApp: App {
@@ -45,6 +46,9 @@ struct RootView: View {
     @State private var selection: SonarTab = .scanner
     @State private var showAbout = false
     @State private var helpMode = false
+    @State private var showSettings = false
+    @AppStorage("appLanguage") private var appLanguage = "ru"
+    @AppStorage("darkTheme") private var darkTheme = true
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -57,10 +61,19 @@ struct RootView: View {
                     Image(systemName: "questionmark.circle").font(.title3)
                         .foregroundStyle(helpMode ? SonarTheme.cyan : .secondary)
                 }.accessibilityLabel(Text("Режим подсказок"))
+                Button { showSettings = true } label: {
+                    Image(systemName: "gearshape").font(.title3)
+                }.accessibilityLabel(Text("Настройки"))
                 Button { showAbout = true } label: {
                     Image(systemName: "info.circle").font(.title3)
                 }.accessibilityLabel(Text("О программе"))
             }.padding(.horizontal, 16).padding(.vertical, 12)
+
+            if helpMode {
+                Text("Подсказки: нажмите на ? ещё раз, чтобы скрыть режим подсказок.")
+                    .font(.caption).foregroundStyle(SonarTheme.cyan)
+                    .padding(.horizontal, 16).padding(.bottom, 8)
+            }
 
             Group {
                 switch selection {
@@ -81,7 +94,7 @@ struct RootView: View {
                             Text(tab.title).font(.system(size: 10, weight: .medium))
                                 .lineLimit(1).minimumScaleFactor(0.75)
                         }
-                        .foregroundStyle(selection == tab ? SonarTheme.cyan : .secondary)
+                        .foregroundStyle(selection == tab ? SonarTheme.cyan : Color.secondary)
                         .frame(maxWidth: .infinity).padding(.vertical, 9)
                         .contentShape(Rectangle())
                     }.buttonStyle(.plain)
@@ -92,13 +105,28 @@ struct RootView: View {
         }
         .background(SonarTheme.background.ignoresSafeArea())
         .sheet(isPresented: $showAbout) { AboutView() }
+        .sheet(isPresented: $showSettings) {
+            SettingsView(appLanguage: $appLanguage, darkTheme: $darkTheme)
+        }
     }
 }
 
 enum SonarTheme {
-    static let background = Color(red: 5/255, green: 6/255, blue: 8/255)
-    static let surface = Color(red: 13/255, green: 15/255, blue: 18/255)
-    static let surfaceVariant = Color(red: 25/255, green: 28/255, blue: 33/255)
+    static let background = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 5/255, green: 6/255, blue: 8/255, alpha: 1)
+            : UIColor(red: 242/255, green: 247/255, blue: 251/255, alpha: 1)
+    })
+    static let surface = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 13/255, green: 15/255, blue: 18/255, alpha: 1)
+            : UIColor(red: 244/255, green: 245/255, blue: 246/255, alpha: 1)
+    })
+    static let surfaceVariant = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 25/255, green: 28/255, blue: 33/255, alpha: 1)
+            : UIColor(red: 232/255, green: 234/255, blue: 237/255, alpha: 1)
+    })
     static let cyan = Color(red: 84/255, green: 244/255, blue: 1)
     static let violet = Color(red: 155/255, green: 140/255, blue: 1)
     static let magenta = Color(red: 1, green: 79/255, blue: 216/255)
@@ -217,8 +245,8 @@ struct DiagnosticsView: View {
             SonarCard {
                 Text("Консоль результатов").font(.headline)
                 if diagnostics.logs.isEmpty { Text("Результаты появятся после запуска проверки.").foregroundStyle(.secondary).font(.caption) }
-                ForEach(Array(diagnostics.logs.enumerated()), id: \.offset) { _, line in
-                    Text(line).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
+                ForEach(Array(diagnostics.logs.enumerated()), id: \.offset) { item in
+                    Text(item.element).font(.system(.caption, design: .monospaced)).textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -253,6 +281,7 @@ struct SurveyMapView: View {
     @State private var points: [SurveyPoint] = []
     @State private var label = ""
     @State private var selectedTool = "Точка"
+    @State private var zoom: CGFloat = 1
     private let tools = ["Точка", "Роутер", "Сателлит", "Линия", "Фигура", "Текст"]
     var body: some View {
         ScreenScroll(title: "Карта замеров") {
@@ -273,10 +302,11 @@ struct SurveyMapView: View {
                         RoundedRectangle(cornerRadius: 12).fill(SonarTheme.surfaceVariant)
                         Path { path in
                             stride(from: 0.0, through: 1.0, by: 0.1).forEach { f in
-                                path.move(to: CGPoint(x: proxy.size.width * f, y: 0))
-                                path.addLine(to: CGPoint(x: proxy.size.width * f, y: proxy.size.height))
-                                path.move(to: CGPoint(x: 0, y: proxy.size.height * f))
-                                path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height * f))
+                                let offset = CGFloat(f)
+                                path.move(to: CGPoint(x: proxy.size.width * offset, y: 0))
+                                path.addLine(to: CGPoint(x: proxy.size.width * offset, y: proxy.size.height))
+                                path.move(to: CGPoint(x: 0, y: proxy.size.height * offset))
+                                path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height * offset))
                             }
                         }.stroke(SonarTheme.border, lineWidth: 0.5)
                         ForEach(points) { point in
@@ -287,14 +317,18 @@ struct SurveyMapView: View {
                             }.position(x: proxy.size.width * point.x, y: proxy.size.height * point.y)
                         }
                     }
-                    .gesture(MagnificationGesture().onChanged { _ in })
-                    .onTapGesture { location in
+                    .scaleEffect(zoom)
+                    .simultaneousGesture(MagnificationGesture().onChanged { value in
+                        zoom = min(max(value, 0.65), 2.5)
+                    })
+                    .simultaneousGesture(DragGesture(minimumDistance: 0).onEnded { gesture in
+                        let point = gesture.location
                         points.append(SurveyPoint(title: label.isEmpty ? "Замер \(points.count + 1)" : label,
-                                                  x: min(max(location.x / proxy.size.width, 0), 1),
-                                                  y: min(max(location.y / proxy.size.height, 0), 1),
+                                                  x: min(max(point.x / proxy.size.width, 0), 1),
+                                                  y: min(max(point.y / proxy.size.height, 0), 1),
                                                   kind: selectedTool))
                         label = ""
-                    }
+                    })
                 }.frame(height: 320).clipped()
                 Text("Это ручная схема помещения, не автоматическая тепловая карта.").font(.caption).foregroundStyle(.secondary)
             }
@@ -320,6 +354,26 @@ struct HistoryView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+struct SettingsView: View {
+    @Binding var appLanguage: String
+    @Binding var darkTheme: Bool
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Язык") {
+                    Picker("Язык приложения", selection: $appLanguage) {
+                        Text("Русский").tag("ru")
+                        Text("English").tag("en")
+                    }.pickerStyle(.segmented)
+                }
+                Section("Внешний вид") {
+                    Toggle("Тёмная тема", isOn: $darkTheme)
+                }
+            }.navigationTitle("Настройки").navigationBarTitleDisplayMode(.inline)
         }
     }
 }
