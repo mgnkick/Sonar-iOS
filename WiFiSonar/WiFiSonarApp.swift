@@ -303,6 +303,7 @@ struct SurveyMapView: View {
     @State private var points: [SurveyPoint] = SurveyMapStore.loadPoints()
     @State private var floorPlanData: Data? = SurveyMapStore.loadFloorPlan()
     @State private var selectedPhoto: PhotosPickerItem?
+    @State private var exportURL: URL?
     @State private var label = ""
     @State private var selectedTool = "Точка"
     @State private var zoom: CGFloat = 1
@@ -320,6 +321,12 @@ struct SurveyMapView: View {
                             floorPlanData = nil
                             SurveyMapStore.saveFloorPlan(nil)
                         }.font(.caption)
+                    }
+                    Button("Экспорт PNG") { exportMap() }.font(.caption)
+                    if let exportURL {
+                        ShareLink(item: exportURL) {
+                            Image(systemName: "square.and.arrow.up")
+                        }.accessibilityLabel(Text("Поделиться PNG"))
                     }
                 }
                 Picker("Инструмент", selection: $selectedTool) {
@@ -391,6 +398,61 @@ struct SurveyMapView: View {
                       let optimized = SurveyMapStore.optimizeImageData(originalData) else { return }
                 floorPlanData = optimized
             }
+        }
+    }
+
+    @MainActor
+    private func exportMap() {
+        let exportView = SurveyMapExportView(points: points, floorPlanData: floorPlanData)
+            .frame(width: 1600, height: 1000)
+        let renderer = ImageRenderer(content: exportView)
+        renderer.scale = 1
+        guard let png = renderer.uiImage?.pngData() else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("WiFiSonar-map-\(UUID().uuidString).png")
+        do {
+            try png.write(to: url, options: .atomic)
+            exportURL = url
+        } catch {
+            exportURL = nil
+        }
+    }
+}
+
+struct SurveyMapExportView: View {
+    let points: [SurveyPoint]
+    let floorPlanData: Data?
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                SonarTheme.background
+                if let floorPlanData, let image = UIImage(data: floorPlanData) {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: proxy.size.width, height: proxy.size.height).clipped()
+                }
+                Path { path in
+                    for index in 0...10 {
+                        let f = CGFloat(index) / 10
+                        path.move(to: CGPoint(x: proxy.size.width * f, y: 0))
+                        path.addLine(to: CGPoint(x: proxy.size.width * f, y: proxy.size.height))
+                        path.move(to: CGPoint(x: 0, y: proxy.size.height * f))
+                        path.addLine(to: CGPoint(x: proxy.size.width, y: proxy.size.height * f))
+                    }
+                }.stroke(SonarTheme.cyan.opacity(0.35), lineWidth: 1)
+                ForEach(points) { point in
+                    VStack(spacing: 5) {
+                        Image(systemName: point.kind == "Роутер" ? "wifi.router" :
+                              point.kind == "Сателлит" ? "dot.radiowaves.left.and.right" : "mappin.circle.fill")
+                            .font(.system(size: 28, weight: .semibold)).foregroundStyle(SonarTheme.cyan)
+                        Text(point.title).font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white).padding(.horizontal, 8).padding(.vertical, 4)
+                            .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                    .position(x: proxy.size.width * point.x, y: proxy.size.height * point.y)
+                }
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18))
         }
     }
 }
