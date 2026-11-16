@@ -165,7 +165,7 @@ struct ScannerView: View {
             SonarCard {
                 Label("Текущее подключение", systemImage: "wifi")
                     .font(.headline).foregroundStyle(SonarTheme.cyan)
-                HStack { Text(network.isWiFi ? "Wi-Fi" : "Сетевой путь"); Spacer(); Text(network.statusText).foregroundStyle(.secondary) }
+                HStack { Text(network.isWiFi ? String(localized: "Wi-Fi") : String(localized: "Сетевой путь")); Spacer(); Text(network.statusText).foregroundStyle(.secondary) }
                 if let ip = network.ipAddress { infoRow("Локальный IP", ip) }
                 else { unavailableRow("Локальный IP") }
                 unavailableRow("SSID")
@@ -190,7 +190,7 @@ struct ScannerView: View {
         HStack { Text(title); Spacer(); Text(value).foregroundStyle(.secondary).textSelection(.enabled) }.font(.subheadline)
     }
     private func unavailableRow(_ title: LocalizedStringKey) -> some View {
-        HStack { Text(title); Spacer(); Text("Недоступно").foregroundStyle(.secondary) }.font(.subheadline)
+        HStack { Text(title); Spacer(); Text(String(localized: "Недоступно")).foregroundStyle(.secondary) }.font(.subheadline)
     }
 }
 
@@ -344,6 +344,7 @@ struct SurveyMapView: View {
 
 struct HistoryView: View {
     @State private var events = HistoryStore.load()
+    @AppStorage("appLanguage") private var appLanguage = "ru"
     @State private var showImporter = false
     @State private var importMessage: String?
     var body: some View {
@@ -366,7 +367,7 @@ struct HistoryView: View {
                     ForEach(events) { event in
                         VStack(alignment: .leading, spacing: 3) {
                             Text(event.title).font(.subheadline.weight(.semibold))
-                            Text(event.date.formatted()).font(.caption).foregroundStyle(.secondary)
+                            Text(event.date.formatted(Date.FormatStyle(date: .numeric, time: .shortened).locale(Locale(identifier: appLanguage)))).font(.caption).foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -375,14 +376,14 @@ struct HistoryView: View {
         .onAppear { events = HistoryStore.load() }
         .fileImporter(isPresented: $showImporter, allowedContentTypes: [.json], allowsMultipleSelection: false) { result in
             do {
-                let url = try result.get().first!
+                guard let url = try result.get().first else { return }
                 let accessed = url.startAccessingSecurityScopedResource()
                 defer { if accessed { url.stopAccessingSecurityScopedResource() } }
                 let data = try Data(contentsOf: url)
                 events = try HistoryStore.importJSON(data)
                 importMessage = "Импортировано событий: \(events.count)"
             } catch {
-                importMessage = "Не удалось импортировать резервную копию."
+                importMessage = String(localized: "Не удалось импортировать резервную копию.")
             }
         }
     }
@@ -477,18 +478,18 @@ final class DiagnosticsService: ObservableObject {
     func scanTCP(host: String, ports rawPorts: String) {
         let octets = host.split(separator: ".").compactMap { UInt8($0) }
         guard octets.count == 4, octets.map(String.init).joined(separator: ".") == host else {
-            logs.append("Ошибка: введите IPv4-адрес устройства в локальной сети.")
+            logs.append(String(localized: "Ошибка: введите IPv4-адрес устройства в локальной сети."))
             return
         }
         let a = Int(octets[0]), b = Int(octets[1])
         let privateAddress = a == 10 || a == 192 && b == 168 || a == 172 && (16...31).contains(b) || a == 169 && b == 254
         guard privateAddress else {
-            logs.append("Проверка ограничена частными IPv4-адресами локальной сети.")
+            logs.append(String(localized: "Проверка ограничена частными IPv4-адресами локальной сети."))
             return
         }
         let selected = Array(Set(rawPorts.split(separator: ",").compactMap { UInt16($0.trimmingCharacters(in: .whitespaces)) }.filter { $0 > 0 })).sorted().prefix(32)
         guard !selected.isEmpty else {
-            logs.append("Ошибка: укажите хотя бы один TCP-порт.")
+            logs.append(String(localized: "Ошибка: укажите хотя бы один TCP-порт."))
             return
         }
         logs.append("TCP-сканирование \(host) · портов: \(selected.count)")
@@ -528,7 +529,7 @@ final class DiagnosticsService: ObservableObject {
     func startBonjourDiscovery() {
         services.removeAll()
         browser?.cancel()
-        let browser = NWBrowser(for: .bonjour(type: "_services._dns-sd._udp", domain: nil), using: .tcp)
+        let browser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: .tcp)
         self.browser = browser
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             let found = results.map { String(describing: $0.endpoint) }
