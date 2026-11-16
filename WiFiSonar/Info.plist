@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+<key>CFBundleDisplayName</key><string>WiFi Sonar</string>
+<key>CFBundleIdentifier</key><string>com.mgnkick.wifisonar</string>
+<key>CFBundlePackageType</key><string>APPL</string>
+<key>LSRequiresIPhoneOS</key><true/>
+<key>UILaunchScreen</key><dict/>
+<key>NSLocalNetworkUsageDescription</key><string>WiFi Sonar uses your local network to discover Bonjour devices and test a device you select.</string>
+<key>NSLocationWhenInUseUsageDescription</key><string>WiFi Sonar can attach your location to a measurement when you choose to save it.</string>
+</dict></plist>
