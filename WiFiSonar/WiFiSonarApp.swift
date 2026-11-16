@@ -596,6 +596,40 @@ struct HistoryEvent: Codable, Identifiable {
     var kind: String
     var date: Date
 
+    enum CodingKeys: String, CodingKey { case id, kind, title, date }
+
+    init(id: UUID, kind: String, date: Date) {
+        self.id = id
+        self.kind = kind
+        self.date = date
+    }
+
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        date = try values.decode(Date.self, forKey: .date)
+        if let storedKind = try values.decodeIfPresent(String.self, forKey: .kind) {
+            kind = storedKind
+        } else {
+            // Migration from the initial prototype, which stored localized event titles.
+            let legacyTitle = try values.decodeIfPresent(String.self, forKey: .title) ?? ""
+            if legacyTitle == "Подключён Wi-Fi" || legacyTitle == "Wi-Fi connected" {
+                kind = "wifi"
+            } else if legacyTitle == "Доступно другое сетевое подключение" || legacyTitle == "Another network connection is available" {
+                kind = "other"
+            } else {
+                kind = "offline"
+            }
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(id, forKey: .id)
+        try values.encode(kind, forKey: .kind)
+        try values.encode(date, forKey: .date)
+    }
+
     var localizedTitle: String {
         switch kind {
         case "wifi": String(localized: "Подключён Wi-Fi")
