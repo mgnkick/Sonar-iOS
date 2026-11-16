@@ -93,3 +93,13 @@
 "%d/tcp — таймаут или закрыт" = "%d/tcp — timed out or closed";
 "%d/tcp — открыт · %.1f мс" = "%d/tcp — open · %.1f ms";
 "%d/tcp — закрыт или недоступен" = "%d/tcp — closed or unavailable";
+"Включить координаты для истории" = "Enable location for history";
+"Открыть координаты: %.5f, %.5f" = "Open coordinates: %.5f, %.5f";
+"Геопозиция не включена." = "Location is not enabled.";
+"Запрашиваем разрешение на геопозицию…" = "Requesting location permission…";
+"Получаем координаты…" = "Getting coordinates…";
+"Доступ к геопозиции запрещён в настройках iOS." = "Location access is denied in iOS Settings.";
+"Состояние геопозиции неизвестно." = "Location authorization state is unknown.";
+"Разрешение получено. Получаем координаты…" = "Permission granted. Getting coordinates…";
+"Координаты сохранены для следующих событий." = "Coordinates saved for future events.";
+"Не удалось получить координаты." = "Could not get coordinates.";
