@@ -129,11 +129,23 @@ enum SonarTheme {
             ? UIColor(red: 25/255, green: 28/255, blue: 33/255, alpha: 1)
             : UIColor(red: 232/255, green: 234/255, blue: 237/255, alpha: 1)
     })
-    static let cyan = Color(red: 84/255, green: 244/255, blue: 1)
+    static let cyan = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 84/255, green: 244/255, blue: 1, alpha: 1)
+            : UIColor(red: 0/255, green: 111/255, blue: 131/255, alpha: 1)
+    })
     static let violet = Color(red: 155/255, green: 140/255, blue: 1)
-    static let magenta = Color(red: 1, green: 79/255, blue: 216/255)
+    static let magenta = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 1, green: 79/255, blue: 216/255, alpha: 1)
+            : UIColor(red: 158/255, green: 40/255, blue: 111/255, alpha: 1)
+    })
     static let green = Color(red: 100/255, green: 247/255, blue: 176/255)
-    static let border = Color(red: 57/255, green: 49/255, blue: 95/255)
+    static let border = Color(uiColor: UIColor { t in
+        t.userInterfaceStyle == .dark
+            ? UIColor(red: 57/255, green: 49/255, blue: 95/255, alpha: 1)
+            : UIColor(red: 188/255, green: 197/255, blue: 206/255, alpha: 1)
+    })
 }
 
 struct SonarCard<Content: View>: View {
@@ -373,7 +385,7 @@ struct HistoryView: View {
                 else {
                     ForEach(events) { event in
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(event.title).font(.subheadline.weight(.semibold))
+                            Text(event.localizedTitle).font(.subheadline.weight(.semibold))
                             Text(event.date.formatted(Date.FormatStyle(date: .numeric, time: .shortened).locale(Locale(identifier: appLanguage)))).font(.caption).foregroundStyle(.secondary)
                         }
                     }
@@ -581,8 +593,16 @@ struct SurveyPoint: Identifiable {
 
 struct HistoryEvent: Codable, Identifiable {
     var id: UUID
-    var title: String
+    var kind: String
     var date: Date
+
+    var localizedTitle: String {
+        switch kind {
+        case "wifi": String(localized: "Подключён Wi-Fi")
+        case "other": String(localized: "Доступно другое сетевое подключение")
+        default: String(localized: "Сетевое подключение недоступно")
+        }
+    }
 }
 
 enum HistoryStore {
@@ -601,10 +621,9 @@ enum HistoryStore {
         let previous = UserDefaults.standard.string(forKey: "wifiSonar.lastPathSignature")
         guard previous != signature else { return }
         UserDefaults.standard.set(signature, forKey: "wifiSonar.lastPathSignature")
-        let title = isWiFi ? String(localized: "Подключён Wi-Fi") :
-            (isAvailable ? String(localized: "Доступно другое сетевое подключение") : String(localized: "Сетевое подключение недоступно"))
+        let kind = isWiFi ? "wifi" : (isAvailable ? "other" : "offline")
         var events = load()
-        events.insert(HistoryEvent(id: UUID(), title: title, date: Date()), at: 0)
+        events.insert(HistoryEvent(id: UUID(), kind: kind, date: Date()), at: 0)
         save(Array(events.prefix(500)))
     }
 
