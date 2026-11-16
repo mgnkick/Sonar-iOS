@@ -1,6 +1,15 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Scheme LastUpgradeVersion="1600" version="1.7">
   <BuildAction parallelizeBuildables="YES" buildImplicitly="YES">
+    <PreActions>
+      <ExecutionAction ActionType="Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+        <ActionContent title="Generate Android-derived AppIcon" scriptText="set -e&#10;swift &quot;$SRCROOT/Scripts/GenerateAppIcon.swift&quot; &quot;$SRCROOT/Assets.xcassets/AppIcon.appiconset/AppIcon.png&quot;">
+          <EnvironmentBuildable>
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A1000000000000000000000B" BuildableName="WiFiSonar.app" BlueprintName="WiFiSonar" ReferencedContainer="container:WiFiSonar.xcodeproj"/>
+          </EnvironmentBuildable>
+        </ActionContent>
+      </ExecutionAction>
+    </PreActions>
     <BuildActionEntries>
       <BuildActionEntry buildForTesting="YES" buildForRunning="YES" buildForProfiling="YES" buildForArchiving="YES" buildForAnalyzing="YES">
         <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="A1000000000000000000000B" BuildableName="WiFiSonar.app" BlueprintName="WiFiSonar" ReferencedContainer="container:WiFiSonar.xcodeproj"/>
