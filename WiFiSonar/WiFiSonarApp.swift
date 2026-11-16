@@ -6,6 +6,7 @@ import Darwin
 import UIKit
 import UniformTypeIdentifiers
 import PhotosUI
+import CoreLocation
 
 @main
 struct WiFiSonarApp: App {
@@ -396,6 +397,7 @@ struct SurveyMapView: View {
 
 struct HistoryView: View {
     @State private var events = HistoryStore.load()
+    @StateObject private var locationTracker = LocationTracker()
     @AppStorage("appLanguage") private var appLanguage = "ru"
     @State private var showImporter = false
     @State private var importMessage: String?
@@ -405,6 +407,12 @@ struct HistoryView: View {
                 Text("Наблюдаемые события").font(.headline)
                 Text("iOS не предоставляет системную историю Wi-Fi-подключений. Здесь будут отображаться только события, которые приложение реально наблюдало во время работы.")
                     .font(.subheadline).foregroundStyle(.secondary)
+                Button {
+                    locationTracker.requestAccess()
+                } label: {
+                    Label("Включить координаты для истории", systemImage: "location")
+                }.buttonStyle(.bordered)
+                Text(locationTracker.statusText).font(.caption).foregroundStyle(.secondary)
                 HStack {
                     ShareLink(item: HistoryStore.exportJSON(), preview: SharePreview("WiFi Sonar backup")) {
                         Label("Экспорт копии", systemImage: "square.and.arrow.up")
@@ -420,6 +428,13 @@ struct HistoryView: View {
                         VStack(alignment: .leading, spacing: 3) {
                             Text(event.localizedTitle).font(.subheadline.weight(.semibold))
                             Text(event.date.formatted(Date.FormatStyle(date: .numeric, time: .shortened).locale(Locale(identifier: appLanguage)))).font(.caption).foregroundStyle(.secondary)
+                            if let latitude = event.latitude, let longitude = event.longitude,
+                               let mapURL = URL(string: "http://maps.apple.com/?ll=\(latitude),\(longitude)") {
+                                Link(destination: mapURL) {
+                                    Label(String(format: String(localized: "Открыть координаты: %.5f, %.5f"), latitude, longitude), systemImage: "map")
+                                        .font(.caption)
+                                }
+                            }
                         }
                     }
                 }
@@ -620,6 +635,77 @@ final class DiagnosticsService: ObservableObject {
     }
 }
 
+private struct StoredLocation {
+    let latitude: Double
+    let longitude: Double
+    let capturedAt: Date
+
+    static func latest() -> StoredLocation? {
+        let defaults = UserDefaults.standard
+        guard let capturedAt = defaults.object(forKey: "wifiSonar.location.timestamp") as? Date else { return nil }
+        let latitude = defaults.double(forKey: "wifiSonar.location.latitude")
+        let longitude = defaults.double(forKey: "wifiSonar.location.longitude")
+        return StoredLocation(latitude: latitude, longitude: longitude, capturedAt: capturedAt)
+    }
+
+    static func save(_ location: CLLocation) {
+        let defaults = UserDefaults.standard
+        defaults.set(location.coordinate.latitude, forKey: "wifiSonar.location.latitude")
+        defaults.set(location.coordinate.longitude, forKey: "wifiSonar.location.longitude")
+        defaults.set(Date(), forKey: "wifiSonar.location.timestamp")
+    }
+}
+
+@MainActor
+final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
+    @Published private(set) var statusText = String(localized: "Геопозиция не включена.")
+    private let manager = CLLocationManager()
+
+    override init() {
+        super.init()
+        manager.delegate = self
+    }
+
+    func requestAccess() {
+        switch manager.authorizationStatus {
+        case .notDetermined:
+            statusText = String(localized: "Запрашиваем разрешение на геопозицию…")
+            manager.requestWhenInUseAuthorization()
+        case .authorizedAlways, .authorizedWhenInUse:
+            statusText = String(localized: "Получаем координаты…")
+            manager.requestLocation()
+        case .denied, .restricted:
+            statusText = String(localized: "Доступ к геопозиции запрещён в настройках iOS.")
+        @unknown default:
+            statusText = String(localized: "Состояние геопозиции неизвестно.")
+        }
+    }
+
+    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        switch manager.authorizationStatus {
+        case .authorizedAlways, .authorizedWhenInUse:
+            statusText = String(localized: "Разрешение получено. Получаем координаты…")
+            manager.requestLocation()
+        case .denied, .restricted:
+            statusText = String(localized: "Доступ к геопозиции запрещён в настройках iOS.")
+        case .notDetermined:
+            break
+        @unknown default:
+            statusText = String(localized: "Состояние геопозиции неизвестно.")
+        }
+    }
+
+    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+        guard let location = locations.last, location.horizontalAccuracy >= 0 else { return }
+        StoredLocation.save(location)
+        statusText = String(localized: "Координаты сохранены для следующих событий.")
+    }
+
+    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        statusText = String(localized: "Не удалось получить координаты.")
+    }
+}
+
 private final class ScanProbeCompletionGate: @unchecked Sendable {
     private let lock = NSLock()
     private var isFinished = false
@@ -696,13 +782,19 @@ struct HistoryEvent: Codable, Identifiable {
     var id: UUID
     var kind: String
     var date: Date
+    var latitude: Double?
+    var longitude: Double?
+    var locationCapturedAt: Date?
 
-    enum CodingKeys: String, CodingKey { case id, kind, title, date }
+    enum CodingKeys: String, CodingKey { case id, kind, title, date, latitude, longitude, locationCapturedAt }
 
-    init(id: UUID, kind: String, date: Date) {
+    init(id: UUID, kind: String, date: Date, latitude: Double? = nil, longitude: Double? = nil, locationCapturedAt: Date? = nil) {
         self.id = id
         self.kind = kind
         self.date = date
+        self.latitude = latitude
+        self.longitude = longitude
+        self.locationCapturedAt = locationCapturedAt
     }
 
     init(from decoder: Decoder) throws {
@@ -722,6 +814,9 @@ struct HistoryEvent: Codable, Identifiable {
                 kind = "offline"
             }
         }
+        latitude = try values.decodeIfPresent(Double.self, forKey: .latitude)
+        longitude = try values.decodeIfPresent(Double.self, forKey: .longitude)
+        locationCapturedAt = try values.decodeIfPresent(Date.self, forKey: .locationCapturedAt)
     }
 
     func encode(to encoder: Encoder) throws {
@@ -729,6 +824,9 @@ struct HistoryEvent: Codable, Identifiable {
         try values.encode(id, forKey: .id)
         try values.encode(kind, forKey: .kind)
         try values.encode(date, forKey: .date)
+        try values.encodeIfPresent(latitude, forKey: .latitude)
+        try values.encodeIfPresent(longitude, forKey: .longitude)
+        try values.encodeIfPresent(locationCapturedAt, forKey: .locationCapturedAt)
     }
 
     var localizedTitle: String {
@@ -758,7 +856,10 @@ enum HistoryStore {
         UserDefaults.standard.set(signature, forKey: "wifiSonar.lastPathSignature")
         let kind = isWiFi ? "wifi" : (isAvailable ? "other" : "offline")
         var events = load()
-        events.insert(HistoryEvent(id: UUID(), kind: kind, date: Date()), at: 0)
+        let location = StoredLocation.latest()
+        events.insert(HistoryEvent(id: UUID(), kind: kind, date: Date(),
+                                   latitude: location?.latitude, longitude: location?.longitude,
+                                   locationCapturedAt: location?.capturedAt), at: 0)
         save(Array(events.prefix(500)))
     }
 
